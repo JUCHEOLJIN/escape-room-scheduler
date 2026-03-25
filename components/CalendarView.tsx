@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { LogOut, Save, CheckCircle } from "lucide-react";
+import { LogOut, Save, CheckCircle, ChevronLeft, ChevronRight } from "lucide-react";
 import EventModal from "./EventModal";
 import type { CalendarEvent, EventStore, AvailabilityStore } from "./EscapeApp";
 
@@ -33,25 +33,56 @@ export default function CalendarView({
   onAddEvent, onDeleteEvent, onToggleAvailability, onSaveAvailability, onLogout,
 }: Props) {
   const now = new Date();
-  const currentYear = now.getFullYear();
-  const currentMonth = now.getMonth();
-  const today = now.getDate();
+  const todayYear = now.getFullYear();
+  const todayMonth = now.getMonth();
+  const todayDate = now.getDate();
 
+  // Max = next month
+  const maxMonth = todayMonth === 11 ? 0 : todayMonth + 1;
+  const maxYear = todayMonth === 11 ? todayYear + 1 : todayYear;
+
+  const [viewYear, setViewYear] = useState(todayYear);
+  const [viewMonth, setViewMonth] = useState(todayMonth);
   const [mode, setMode] = useState<Mode>("availability");
   const [selectedDate, setSelectedDate] = useState<{ year: number; month: number; day: number } | null>(null);
   const [savedFeedback, setSavedFeedback] = useState(false);
 
-  const firstDay = new Date(currentYear, currentMonth, 1).getDay();
+  const canGoPrev = !(viewYear === todayYear && viewMonth === todayMonth);
+  const canGoNext = !(viewYear === maxYear && viewMonth === maxMonth);
+
+  function goPrev() {
+    if (!canGoPrev) return;
+    if (viewMonth === 0) { setViewMonth(11); setViewYear(viewYear - 1); }
+    else setViewMonth(viewMonth - 1);
+    setSelectedDate(null);
+  }
+
+  function goNext() {
+    if (!canGoNext) return;
+    if (viewMonth === 11) { setViewMonth(0); setViewYear(viewYear + 1); }
+    else setViewMonth(viewMonth + 1);
+    setSelectedDate(null);
+  }
+
+  const firstDay = new Date(viewYear, viewMonth, 1).getDay();
   const startOffset = (firstDay + 6) % 7;
-  const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
+  const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
   const cells: (number | null)[] = [
     ...Array(startOffset).fill(null),
     ...Array.from({ length: daysInMonth }, (_, i) => i + 1),
   ];
   while (cells.length % 7 !== 0) cells.push(null);
 
-  const isPast = (day: number) => currentYear === now.getFullYear() && currentMonth === now.getMonth() && day < today;
-  const isToday = (day: number) => currentYear === now.getFullYear() && currentMonth === now.getMonth() && day === today;
+  function isPast(day: number) {
+    if (viewYear < todayYear) return true;
+    if (viewYear === todayYear && viewMonth < todayMonth) return true;
+    if (viewYear === todayYear && viewMonth === todayMonth && day < todayDate) return true;
+    return false;
+  }
+
+  function isToday(day: number) {
+    return viewYear === todayYear && viewMonth === todayMonth && day === todayDate;
+  }
 
   function getOtherCount(dateKey: string) {
     return Object.entries(allAvailability).filter(([n, dates]) => n !== userName && dates.includes(dateKey)).length;
@@ -59,9 +90,9 @@ export default function CalendarView({
 
   function handleDayClick(day: number) {
     if (!day || isPast(day)) return;
-    const dateKey = toDateKey(currentYear, currentMonth, day);
+    const dateKey = toDateKey(viewYear, viewMonth, day);
     if (mode === "availability") onToggleAvailability(dateKey);
-    else setSelectedDate({ year: currentYear, month: currentMonth, day });
+    else setSelectedDate({ year: viewYear, month: viewMonth, day });
   }
 
   async function handleSave() {
@@ -73,16 +104,17 @@ export default function CalendarView({
   const selectedKey = selectedDate ? toDateKey(selectedDate.year, selectedDate.month, selectedDate.day) : null;
   const selectedEvents = selectedKey ? (events[selectedKey] ?? []) : [];
   const totalEvents = Object.values(events).reduce((s, a) => s + a.length, 0);
-  const myAvailableThisMonth = userAvailability.filter((d) => parseInt(d.split("-")[1], 10) - 1 === currentMonth);
+
+  // Count my available days in the currently viewed month
+  const myAvailableThisView = userAvailability.filter((d) => {
+    const [y, m] = d.split("-").map(Number);
+    return y === viewYear && m - 1 === viewMonth;
+  });
 
   return (
     <div className="min-h-screen flex flex-col" style={{ background: "#0e0e1c" }}>
-      {/* BG grid */}
       <div className="fixed inset-0 pointer-events-none" style={{
-        backgroundImage: `
-          linear-gradient(rgba(212,168,67,0.04) 1px, transparent 1px),
-          linear-gradient(90deg, rgba(212,168,67,0.04) 1px, transparent 1px)
-        `,
+        backgroundImage: `linear-gradient(rgba(212,168,67,0.04) 1px, transparent 1px), linear-gradient(90deg, rgba(212,168,67,0.04) 1px, transparent 1px)`,
         backgroundSize: "60px 60px",
       }} />
 
@@ -108,11 +140,11 @@ export default function CalendarView({
             <p className="text-xs" style={{ color: "#707090" }}>안녕하세요</p>
             <p className="text-sm font-medium" style={{ color: "#eeeef8" }}>{userName}</p>
           </div>
-          {myAvailableThisMonth.length > 0 && (
+          {myAvailableThisView.length > 0 && (
             <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs"
               style={{ background: "rgba(212,168,67,0.15)", border: "1px solid rgba(212,168,67,0.4)", color: "#d4a843" }}>
               <CheckCircle size={11} />
-              {myAvailableThisMonth.length}일 가능
+              {myAvailableThisView.length}일 가능
             </div>
           )}
           <button onClick={onLogout} className="p-2 rounded transition-all" style={{ color: "#707090" }}
@@ -144,24 +176,42 @@ export default function CalendarView({
             ))}
           </div>
 
-          {/* Month header */}
+          {/* Month navigation */}
           <div className="flex items-center justify-center gap-4 mb-6">
-            <div className="h-px flex-1" style={{ background: "linear-gradient(90deg, transparent, #383858)" }} />
-            <div className="text-center">
-              <p className="text-xs tracking-[0.4em] mb-0.5" style={{ color: "#707090", fontFamily: "var(--font-cinzel)" }}>{currentYear}</p>
-              <h2 className="text-2xl font-semibold tracking-widest" style={{
-                fontFamily: "var(--font-cinzel)",
-                background: "linear-gradient(90deg, #a07835 0%, #d4a843 40%, #f0d070 50%, #d4a843 60%, #a07835 100%)",
-                backgroundSize: "200% auto",
-                WebkitBackgroundClip: "text",
-                WebkitTextFillColor: "transparent",
-                backgroundClip: "text",
-                animation: "shimmer 5s linear infinite",
-              }}>
-                {MONTHS_KO[currentMonth].toUpperCase()}
-              </h2>
+            <button onClick={goPrev} disabled={!canGoPrev}
+              className="p-1.5 rounded transition-all"
+              style={{ color: canGoPrev ? "#a8a8c8" : "#2a2a40", cursor: canGoPrev ? "pointer" : "default" }}
+              onMouseEnter={(e) => { if (canGoPrev) { e.currentTarget.style.color = "#d4a843"; e.currentTarget.style.background = "rgba(212,168,67,0.1)"; } }}
+              onMouseLeave={(e) => { e.currentTarget.style.color = canGoPrev ? "#a8a8c8" : "#2a2a40"; e.currentTarget.style.background = "transparent"; }}>
+              <ChevronLeft size={18} />
+            </button>
+
+            <div className="flex items-center gap-3">
+              <div className="h-px w-12" style={{ background: "linear-gradient(90deg, transparent, #383858)" }} />
+              <div className="text-center">
+                <p className="text-xs tracking-[0.4em] mb-0.5" style={{ color: "#707090", fontFamily: "var(--font-cinzel)" }}>{viewYear}</p>
+                <h2 className="text-2xl font-semibold tracking-widest" style={{
+                  fontFamily: "var(--font-cinzel)",
+                  background: "linear-gradient(90deg, #a07835 0%, #d4a843 40%, #f0d070 50%, #d4a843 60%, #a07835 100%)",
+                  backgroundSize: "200% auto",
+                  WebkitBackgroundClip: "text",
+                  WebkitTextFillColor: "transparent",
+                  backgroundClip: "text",
+                  animation: "shimmer 5s linear infinite",
+                }}>
+                  {MONTHS_KO[viewMonth].toUpperCase()}
+                </h2>
+              </div>
+              <div className="h-px w-12" style={{ background: "linear-gradient(90deg, #383858, transparent)" }} />
             </div>
-            <div className="h-px flex-1" style={{ background: "linear-gradient(90deg, #383858, transparent)" }} />
+
+            <button onClick={goNext} disabled={!canGoNext}
+              className="p-1.5 rounded transition-all"
+              style={{ color: canGoNext ? "#a8a8c8" : "#2a2a40", cursor: canGoNext ? "pointer" : "default" }}
+              onMouseEnter={(e) => { if (canGoNext) { e.currentTarget.style.color = "#d4a843"; e.currentTarget.style.background = "rgba(212,168,67,0.1)"; } }}
+              onMouseLeave={(e) => { e.currentTarget.style.color = canGoNext ? "#a8a8c8" : "#2a2a40"; e.currentTarget.style.background = "transparent"; }}>
+              <ChevronRight size={18} />
+            </button>
           </div>
 
           {/* Weekday headers */}
@@ -176,85 +226,61 @@ export default function CalendarView({
           <div className="h-px mb-4" style={{ background: "#1e1e38" }} />
 
           {/* Calendar grid */}
-          <div className="grid grid-cols-7 gap-1">
-            {cells.map((day, idx) => {
-              if (!day) return <div key={`e-${idx}`} className="aspect-square" />;
+          <AnimatePresence mode="wait">
+            <motion.div
+              key={`${viewYear}-${viewMonth}`}
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -20 }}
+              transition={{ duration: 0.2 }}
+              className="grid grid-cols-7 gap-1"
+            >
+              {cells.map((day, idx) => {
+                if (!day) return <div key={`e-${idx}`} className="aspect-square" />;
 
-              const past = isPast(day);
-              const todayDay = isToday(day);
-              const dateKey = toDateKey(currentYear, currentMonth, day);
-              const isMeAvail = userAvailability.includes(dateKey);
-              const otherCount = getOtherCount(dateKey);
-              const hasEvents = (events[dateKey] ?? []).length > 0;
-              const isSat = (idx % 7) === 5;
-              const isSun = (idx % 7) === 6;
+                const past = isPast(day);
+                const todayDay = isToday(day);
+                const dateKey = toDateKey(viewYear, viewMonth, day);
+                const isMeAvail = userAvailability.includes(dateKey);
+                const otherCount = getOtherCount(dateKey);
+                const hasEvents = (events[dateKey] ?? []).length > 0;
+                const isSat = (idx % 7) === 5;
+                const isSun = (idx % 7) === 6;
 
-              let textColor = "#d0d0e8";
-              if (past) textColor = "#383858";
-              else if (isMeAvail) textColor = "#f0d070";
-              else if (isSat) textColor = "#d4a843";
-              else if (isSun) textColor = "#c06060";
+                let textColor = "#d0d0e8";
+                if (past) textColor = "#383858";
+                else if (isMeAvail) textColor = "#f0d070";
+                else if (isSat) textColor = "#d4a843";
+                else if (isSun) textColor = "#c06060";
 
-              const bg = isMeAvail && !past
-                ? "rgba(212,168,67,0.22)"
-                : todayDay
-                ? "rgba(212,168,67,0.09)"
-                : "transparent";
+                const bg = isMeAvail && !past ? "rgba(212,168,67,0.22)" : todayDay ? "rgba(212,168,67,0.09)" : "transparent";
+                const borderC = isMeAvail && !past ? "rgba(212,168,67,0.55)" : todayDay ? "rgba(212,168,67,0.3)" : "transparent";
 
-              const borderC = isMeAvail && !past
-                ? "rgba(212,168,67,0.55)"
-                : todayDay
-                ? "rgba(212,168,67,0.3)"
-                : "transparent";
-
-              return (
-                <motion.button key={day}
-                  whileHover={!past ? { scale: 1.06 } : {}}
-                  whileTap={!past ? { scale: 0.95 } : {}}
-                  onClick={() => handleDayClick(day)}
-                  disabled={past}
-                  className="aspect-square rounded-md flex flex-col items-center justify-center gap-0.5 relative transition-all duration-150"
-                  style={{
-                    background: bg,
-                    border: `1px solid ${borderC}`,
-                    cursor: past ? "default" : "pointer",
-                    boxShadow: isMeAvail && !past ? "0 0 12px rgba(212,168,67,0.15)" : "none",
-                  }}
-                  onMouseEnter={(e) => {
-                    if (!past && bg === "transparent") {
-                      e.currentTarget.style.background = "rgba(255,255,255,0.06)";
-                      e.currentTarget.style.border = "1px solid #505078";
-                    }
-                  }}
-                  onMouseLeave={(e) => {
-                    if (!past && bg === "transparent") {
-                      e.currentTarget.style.background = "transparent";
-                      e.currentTarget.style.border = "1px solid transparent";
-                    }
-                  }}
-                >
-                  <span className="text-sm font-medium leading-none" style={{ color: textColor }}>{day}</span>
-
-                  <div className="flex items-center gap-0.5">
-                    {!past && isMeAvail && (
-                      <span className="text-[8px]" style={{ color: "#d4a843" }}>✓</span>
+                return (
+                  <motion.button key={day}
+                    whileHover={!past ? { scale: 1.06 } : {}}
+                    whileTap={!past ? { scale: 0.95 } : {}}
+                    onClick={() => handleDayClick(day)}
+                    disabled={past}
+                    className="aspect-square rounded-md flex flex-col items-center justify-center gap-0.5 relative transition-all duration-150"
+                    style={{ background: bg, border: `1px solid ${borderC}`, cursor: past ? "default" : "pointer", boxShadow: isMeAvail && !past ? "0 0 12px rgba(212,168,67,0.15)" : "none" }}
+                    onMouseEnter={(e) => { if (!past && bg === "transparent") { e.currentTarget.style.background = "rgba(255,255,255,0.06)"; e.currentTarget.style.border = "1px solid #505078"; } }}
+                    onMouseLeave={(e) => { if (!past && bg === "transparent") { e.currentTarget.style.background = "transparent"; e.currentTarget.style.border = "1px solid transparent"; } }}
+                  >
+                    <span className="text-sm font-medium leading-none" style={{ color: textColor }}>{day}</span>
+                    <div className="flex items-center gap-0.5">
+                      {!past && isMeAvail && <span className="text-[8px]" style={{ color: "#d4a843" }}>✓</span>}
+                      {!past && otherCount > 0 && <span className="text-[8px]" style={{ color: "rgba(212,168,67,0.65)" }}>+{otherCount}</span>}
+                      {!past && hasEvents && mode === "events" && <span className="w-1 h-1 rounded-full" style={{ background: "#d4a843" }} />}
+                    </div>
+                    {todayDay && (
+                      <span className="absolute top-0.5 right-1 text-[8px]" style={{ color: "#a07835", fontFamily: "var(--font-cinzel)" }}>오늘</span>
                     )}
-                    {!past && otherCount > 0 && (
-                      <span className="text-[8px]" style={{ color: "rgba(212,168,67,0.65)" }}>+{otherCount}</span>
-                    )}
-                    {!past && hasEvents && mode === "events" && (
-                      <span className="w-1 h-1 rounded-full" style={{ background: "#d4a843" }} />
-                    )}
-                  </div>
-
-                  {todayDay && (
-                    <span className="absolute top-0.5 right-1 text-[8px]"
-                      style={{ color: "#a07835", fontFamily: "var(--font-cinzel)" }}>오늘</span>
-                  )}
-                </motion.button>
-              );
-            })}
-          </div>
+                  </motion.button>
+                );
+              })}
+            </motion.div>
+          </AnimatePresence>
 
           {/* Bottom panels */}
           <AnimatePresence mode="wait">
@@ -272,14 +298,13 @@ export default function CalendarView({
                   </div>
                 </div>
 
-                {myAvailableThisMonth.length > 0 && (
-                  <div className="rounded-lg px-4 py-3 space-y-2"
-                    style={{ background: "#181830", border: "1px solid #383858" }}>
+                {myAvailableThisView.length > 0 && (
+                  <div className="rounded-lg px-4 py-3 space-y-2" style={{ background: "#181830", border: "1px solid #383858" }}>
                     <p className="text-xs tracking-widest" style={{ color: "#a07835", fontFamily: "var(--font-cinzel)" }}>
-                      내 가능 날짜 ({myAvailableThisMonth.length}일)
+                      내 가능 날짜 ({myAvailableThisView.length}일)
                     </p>
                     <div className="flex flex-wrap gap-1.5">
-                      {myAvailableThisMonth.map((dateKey) => {
+                      {myAvailableThisView.map((dateKey) => {
                         const day = parseInt(dateKey.split("-")[2], 10);
                         return (
                           <button key={dateKey} onClick={() => onToggleAvailability(dateKey)}
@@ -287,7 +312,7 @@ export default function CalendarView({
                             style={{ background: "rgba(212,168,67,0.15)", border: "1px solid rgba(212,168,67,0.4)", color: "#d4a843" }}
                             onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(255,80,80,0.12)"; e.currentTarget.style.borderColor = "rgba(255,80,80,0.4)"; e.currentTarget.style.color = "#ff8888"; }}
                             onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(212,168,67,0.15)"; e.currentTarget.style.borderColor = "rgba(212,168,67,0.4)"; e.currentTarget.style.color = "#d4a843"; }}>
-                            {MONTHS_KO[currentMonth]} {day}일 ×
+                            {MONTHS_KO[viewMonth]} {day}일 ×
                           </button>
                         );
                       })}
@@ -317,8 +342,7 @@ export default function CalendarView({
                 className="mt-6 space-y-3">
                 <div className="flex items-center justify-center gap-6 text-xs" style={{ color: "#707090" }}>
                   <div className="flex items-center gap-1.5">
-                    <span className="w-1.5 h-1.5 rounded-full" style={{ background: "#d4a843" }} />
-                    일정 있음
+                    <span className="w-1.5 h-1.5 rounded-full" style={{ background: "#d4a843" }} />일정 있음
                   </div>
                   <div className="flex items-center gap-1.5">
                     <div className="w-3 h-3 rounded-sm" style={{ background: "rgba(212,168,67,0.09)", border: "1px solid rgba(212,168,67,0.3)" }} />
@@ -342,10 +366,7 @@ export default function CalendarView({
                             <div key={dateKey}
                               className="px-4 py-2.5 flex items-center gap-3 cursor-pointer"
                               style={{ background: "#111120" }}
-                              onClick={() => {
-                                const [y2, m2, d2] = dateKey.split("-").map(Number);
-                                setSelectedDate({ year: y2, month: m2 - 1, day: d2 });
-                              }}
+                              onClick={() => { const [y2, m2, d2] = dateKey.split("-").map(Number); setSelectedDate({ year: y2, month: m2 - 1, day: d2 }); }}
                               onMouseEnter={(e) => { (e.currentTarget as HTMLDivElement).style.background = "#181830"; }}
                               onMouseLeave={(e) => { (e.currentTarget as HTMLDivElement).style.background = "#111120"; }}>
                               <div className="text-center px-2 py-0.5 rounded flex-shrink-0"
