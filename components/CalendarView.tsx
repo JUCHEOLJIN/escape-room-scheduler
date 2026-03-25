@@ -564,6 +564,7 @@ export default function CalendarView({
                               background: "rgba(212,168,67,0.15)",
                               border: "1px solid rgba(212,168,67,0.4)",
                               color: "#d4a843",
+                              fontWeight: "bold",
                             }}
                             onMouseEnter={(e) => {
                               e.currentTarget.style.background =
